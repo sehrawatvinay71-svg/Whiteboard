@@ -10,7 +10,7 @@ function App() {
       <ToolboxProvider>
         <Toolbar />
         <Board />
-        <Toolbox/>
+        <Toolbox />
       </ToolboxProvider>
     </BoardProvider>
   );
