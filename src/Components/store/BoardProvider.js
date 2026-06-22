@@ -1,4 +1,4 @@
-import React, { useContext, useReducer, useState } from "react";
+import React, { useCallback, useContext, useReducer, useState } from "react";
 
 import boardContext from "./board-context";
 import { BOARD_ACTIONS, TOOL_ACTION_TYPES, TOOL_ITEMS } from "../../constants";
@@ -233,7 +233,7 @@ const BoardProvider = ({ children }) => {
     });
   };
 
-  const textAreaBlurHandler = (text, toolboxState) => {
+  const textAreaBlurHandler = (text) => {
     dispatchBoardAction({
       type: BOARD_ACTIONS.CHANGE_TEXT,
       payload: {
@@ -241,16 +241,16 @@ const BoardProvider = ({ children }) => {
       },
     });
   };
-  const boardUndoHandler = () => {
+  const boardUndoHandler = useCallback(() => {
     dispatchBoardAction({
       type: BOARD_ACTIONS.UNDO,
     });
-  };
-  const boardRedoHandler = () => {
+  }, []);
+  const boardRedoHandler = useCallback(() => {
     dispatchBoardAction({
       type: BOARD_ACTIONS.REDO,
     });
-  };
+  }, []);
 
   const boardContextValue = {
     activeToolItem: boardState.activeToolItem,
