@@ -1,4 +1,10 @@
-import React, { useCallback, useContext, useReducer, useState } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useReducer,
+  useState,
+  useEffect,
+} from "react";
 
 import boardContext from "./board-context";
 import { BOARD_ACTIONS, TOOL_ACTION_TYPES, TOOL_ITEMS } from "../../constants";
@@ -9,11 +15,67 @@ import {
 } from "../../utils/element";
 import getStroke from "perfect-freehand";
 import toolboxContext from "./toolbox-context";
+import { loadBoardFromDB, saveBoardToDB } from "../../utils/indexedDB";
 
 //const gen = rough.generator();
+const STORAGE_KEY = "whiteboard-elements";
 
+const rebuildElements = (savedElements) => {
+  return savedElements.map((element) => {
+    if (element.type === TOOL_ITEMS.BRUSH) {
+      return {
+        ...element,
+        path: new Path2D(
+          getSvgPathFromStroke(
+            getStroke(element.points, {
+              size: element.size,
+            }),
+          ),
+        ),
+      };
+    }
+
+    if (element.type === TOOL_ITEMS.TEXT) {
+      return element;
+    }
+
+    return createElement(
+      element.id,
+      element.x1,
+      element.y1,
+      element.x2,
+      element.y2,
+      {
+        type: element.type,
+        stroke: element.stroke,
+        fill: element.fill,
+        size: element.size,
+      },
+    );
+  });
+};
+
+const restoreElements = () => {
+  try {
+    const savedElements = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+
+    return rebuildElements(savedElements);
+  } catch {
+    return [];
+  }
+};
 const boardReducer = (state, action) => {
   switch (action.type) {
+    case BOARD_ACTIONS.LOAD_BOARD: {
+      const elements = action.payload.elements;
+
+      return {
+        ...state,
+        elements,
+        history: [elements],
+        index: 0,
+      };
+    }
     case BOARD_ACTIONS.CHANGE_TOOL: {
       return {
         ...state,
@@ -74,7 +136,11 @@ const boardReducer = (state, action) => {
             { x: clientX, y: clientY },
           ];
           newElements[index].path = new Path2D(
-            getSvgPathFromStroke(getStroke(newElements[index].points)),
+            getSvgPathFromStroke(
+              getStroke(newElements[index].points, {
+                size: newElements[index].size,
+              }),
+            ),
           );
           return {
             ...state,
@@ -86,6 +152,20 @@ const boardReducer = (state, action) => {
     }
 
     case BOARD_ACTIONS.DRAW_UP: {
+      const lastElement = state.elements[state.elements.length - 1];
+
+      if (
+        lastElement.type !== TOOL_ITEMS.BRUSH &&
+        Math.hypot(
+          lastElement.x2 - lastElement.x1,
+          lastElement.y2 - lastElement.y1,
+        ) < 5
+      ) {
+        return {
+          ...state,
+          elements: state.elements.slice(0, -1),
+        };
+      }
       const elementsCopy = [...state.elements];
       const newHistory = state.history.slice(0, state.index + 1);
       newHistory.push(elementsCopy);
@@ -97,21 +177,44 @@ const boardReducer = (state, action) => {
     }
     case BOARD_ACTIONS.ERASE: {
       const { clientX, clientY } = action.payload;
-      let newElements = [...state.elements];
-      newElements = newElements.filter((element) => {
+
+      const newElements = state.elements.filter((element) => {
         return !isPointNearElement(element, clientX, clientY);
       });
-      const newHistory = state.history.slice(0, state.index + 1);
-      newHistory.push(newElements);
+
+      if (newElements.length === state.elements.length) {
+        return state;
+      }
       return {
         ...state,
         elements: newElements,
+      };
+    }
+    case BOARD_ACTIONS.ERASE_END: {
+      const previouslySavedElements = state.history[state.index];
+
+      if (previouslySavedElements.length === state.elements.length) {
+        return state;
+      }
+
+      const newHistory = state.history.slice(0, state.index + 1);
+      newHistory.push([...state.elements]);
+
+      return {
+        ...state,
         history: newHistory,
         index: state.index + 1,
       };
     }
 
     case BOARD_ACTIONS.CHANGE_TEXT: {
+      if (!action.payload.text.trim()) {
+        return {
+          ...state,
+          toolActionType: TOOL_ACTION_TYPES.NONE,
+          elements: state.elements.slice(0, -1),
+        };
+      }
       const index = state.elements.length - 1;
       const newElements = [...state.elements];
       newElements[index].text = action.payload.text;
@@ -147,11 +250,13 @@ const boardReducer = (state, action) => {
   }
 };
 
+const savedElements = restoreElements();
+
 const initialBoardState = {
   activeToolItem: TOOL_ITEMS.BRUSH,
   toolActionType: TOOL_ACTION_TYPES.NONE,
-  elements: [],
-  history: [[]],
+  elements: savedElements,
+  history: [savedElements],
   index: 0,
 };
 
@@ -161,6 +266,58 @@ const BoardProvider = ({ children }) => {
     initialBoardState,
   );
 
+  const [isBoardLoaded, setIsBoardLoaded] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadBoard = async () => {
+      try {
+        const storedElements = await loadBoardFromDB();
+
+        if (isCancelled) return;
+
+        if (storedElements.length > 0) {
+          dispatchBoardAction({
+            type: BOARD_ACTIONS.LOAD_BOARD,
+            payload: {
+              elements: rebuildElements(storedElements),
+            },
+          });
+        } else if (initialBoardState.elements.length > 0) {
+          await saveBoardToDB(initialBoardState.elements);
+        }
+
+        localStorage.removeItem(STORAGE_KEY);
+      } catch (error) {
+        console.error("Unable to load board", error);
+      } finally {
+        if (!isCancelled) {
+          setIsBoardLoaded(true);
+        }
+      }
+    };
+
+    loadBoard();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isBoardLoaded) return;
+
+    const saveTimeout = setTimeout(() => {
+      saveBoardToDB(boardState.elements).catch((error) => {
+        console.error("Unable to save board", error);
+      });
+    }, 500);
+
+    return () => {
+      clearTimeout(saveTimeout);
+    };
+  }, [boardState.elements, isBoardLoaded]);
   const changeToolHandler = (tool) => {
     dispatchBoardAction({
       type: BOARD_ACTIONS.CHANGE_TOOL,
@@ -180,6 +337,15 @@ const BoardProvider = ({ children }) => {
           actionType: TOOL_ACTION_TYPES.ERASING,
         },
       });
+
+      dispatchBoardAction({
+        type: BOARD_ACTIONS.ERASE,
+        payload: {
+          clientX,
+          clientY,
+        },
+      });
+
       return;
     }
     dispatchBoardAction({
@@ -222,6 +388,10 @@ const BoardProvider = ({ children }) => {
     if (boardState.toolActionType === TOOL_ACTION_TYPES.DRAWING) {
       dispatchBoardAction({
         type: BOARD_ACTIONS.DRAW_UP,
+      });
+    } else if (boardState.toolActionType === TOOL_ACTION_TYPES.ERASING) {
+      dispatchBoardAction({
+        type: BOARD_ACTIONS.ERASE_END,
       });
     }
 

@@ -1,10 +1,31 @@
 import { ELEMENT_ERASE_THRESHOLD } from "../constants";
 
-export const isPointCloseToLine = (x1, y1, x2, y2, pointX, pointY) => {
-  const distToStart = distanceBetweenPoints(x1, y1, pointX, pointY);
-  const distToEnd = distanceBetweenPoints(x2, y2, pointX, pointY);
-  const distLine = distanceBetweenPoints(x1, y1, x2, y2);
-  return Math.abs(distToStart + distToEnd - distLine) < ELEMENT_ERASE_THRESHOLD;
+export const isPointCloseToLine = (
+  x1,
+  y1,
+  x2,
+  y2,
+  pointX,
+  pointY,
+  threshold = ELEMENT_ERASE_THRESHOLD,
+) => {
+  const lineX = x2 - x1;
+  const lineY = y2 - y1;
+  const lineLengthSquared = lineX * lineX + lineY * lineY;
+
+  if (lineLengthSquared === 0) {
+    return distanceBetweenPoints(x1, y1, pointX, pointY) <= threshold;
+  }
+
+  let position =
+    ((pointX - x1) * lineX + (pointY - y1) * lineY) / lineLengthSquared;
+
+  position = Math.max(0, Math.min(1, position));
+
+  const closestX = x1 + position * lineX;
+  const closestY = y1 + position * lineY;
+
+  return distanceBetweenPoints(closestX, closestY, pointX, pointY) <= threshold;
 };
 
 export const isNearPoint = (x, y, x1, y1) => {

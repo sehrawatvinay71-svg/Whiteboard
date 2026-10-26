@@ -53,26 +53,19 @@ const Toolbox = () => {
         <div className={classes.selectOptionContainer}>
           <div className={classes.toolBoxLabel}>Fill color</div>
           <div className={classes.colorsContainer}>
-            {fillColor === null ? (
-              <div
-                className={cx(classes.colorPicker, classes.noFillColorBox)}
-                onClick={() => changeFill(activeToolItem, COLORS.BLACK)}
-              ></div>
-            ) : (
-              <div>
-                <input
-                  className={classes.colorPicker}
-                  type="color"
-                  value={strokeColor}
-                  onChange={(e) => changeFill(activeToolItem, e.target.value)}
-                ></input>
-              </div>
-            )}
+            <div>
+              <input
+                className={classes.colorPicker}
+                type="color"
+                value={fillColor || COLORS.BLACK}
+                onChange={(e) => changeFill(activeToolItem, e.target.value)}
+              ></input>
+            </div>
             <div
               className={cx(classes.colorBox, classes.noFillColorBox, {
                 [classes.activeColorBox]: fillColor === null,
               })}
-              onClick={() => changeFill(activeToolItem,null)}
+              onClick={() => changeFill(activeToolItem, null)}
             ></div>
             {Object.keys(COLORS).map((k) => {
               return (
@@ -92,7 +85,11 @@ const Toolbox = () => {
       {SIZE_TOOL_TYPES.includes(activeToolItem) && (
         <div className={classes.selectOptionContainer}>
           <div className={classes.toolBoxLabel}>
-            {activeToolItem === TOOL_ITEMS.TEXT ? "Font Size" : "Brush Size"}
+            {activeToolItem === TOOL_ITEMS.TEXT
+              ? "Font Size"
+              : activeToolItem === TOOL_ITEMS.BRUSH
+                ? "Brush Size"
+                : "Stroke Size"}
           </div>
           <input
             type="range"

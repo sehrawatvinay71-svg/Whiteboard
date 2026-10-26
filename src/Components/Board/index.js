@@ -1,4 +1,10 @@
-import React, { useContext, useEffect, useLayoutEffect, useRef } from "react";
+import React, {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import rough from "roughjs";
 import boardContext from "../store/board-context";
 import { TOOL_ACTION_TYPES, TOOL_ITEMS } from "../../constants";
@@ -8,6 +14,12 @@ import classes from "./index.module.css";
 function Board() {
   const canvasRef = useRef();
   const textAreaRef = useRef();
+  const activePointerIdRef = useRef(null);
+  const [canvasSize, setCanvasSize] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+  const pixelRatio = window.devicePixelRatio || 1;
   const {
     elements,
     boardMouseDownHandler,
@@ -20,16 +32,40 @@ function Board() {
   } = useContext(boardContext);
   const { toolboxState } = useContext(toolboxContext);
   useEffect(() => {
-    const canvas = canvasRef.current;
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    const handleResize = () => {
+      setCanvasSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   useEffect(() => {
     function handleKeyDown(event) {
-      if (event.ctrlKey && event.key === "z") {
+      const isTyping =
+        event.target.tagName === "TEXTAREA" ||
+        event.target.tagName === "INPUT" ||
+        event.target.isContentEditable;
+
+      if (isTyping) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === "z") {
+        event.preventDefault();
         undo();
-      } else if (event.ctrlKey && event.key === "y") {
+      } else if (
+        (event.ctrlKey || event.metaKey) &&
+        (key === "y" || (event.shiftKey && key === "z"))
+      ) {
+        event.preventDefault();
         redo();
       }
     }
@@ -41,6 +77,7 @@ function Board() {
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     context.save();
 
     const roughCanvas = rough.canvas(canvas);
@@ -62,7 +99,13 @@ function Board() {
           context.textBaseline = "top";
           context.font = `${element.size}px Caveat`;
           context.fillStyle = element.stroke;
-          context.fillText(element.text, element.x1, element.y1);
+          element.text.split("\n").forEach((line, index) => {
+            context.fillText(
+              line,
+              element.x1,
+              element.y1 + index * Number(element.size) * 1.2,
+            );
+          });
           context.restore();
           break;
         default:
@@ -70,9 +113,10 @@ function Board() {
       }
     });
     return () => {
+      context.setTransform(1, 0, 0, 1, 0, 0);
       context.clearRect(0, 0, canvas.width, canvas.height);
     };
-  }, [elements]);
+  }, [elements, canvasSize, pixelRatio]);
 
   useEffect(() => {
     const textarea = textAreaRef.current;
@@ -83,17 +127,30 @@ function Board() {
     }
   }, [toolActionType]);
 
-  const handleMouseDown = (event) => {
+  const handlePointerDown = (event) => {
+    if (event.button !== 0 || activePointerIdRef.current !== null) return;
+
+    activePointerIdRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
     boardMouseDownHandler(event, toolboxState);
   };
-  const handleMouseMove = (event) => {
+
+  const handlePointerMove = (event) => {
+    if (event.pointerId !== activePointerIdRef.current) return;
+
     boardMouseMoveHandler(event);
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = (event) => {
+    if (event.pointerId !== activePointerIdRef.current) return;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    activePointerIdRef.current = null;
     boardMouseUpHandler();
   };
-
   return (
     <>
       {toolActionType === TOOL_ACTION_TYPES.WRITING && (
@@ -107,15 +164,35 @@ function Board() {
             fontSize: `${elements[elements.length - 1]?.size}px`,
             color: elements[elements.length - 1]?.stroke,
           }}
+          rows={1}
+          cols={1}
+          wrap="off"
+          onInput={(event) => {
+            event.currentTarget.style.width = "1px";
+            event.currentTarget.style.height = "1px";
+
+            event.currentTarget.style.width = `${event.currentTarget.scrollWidth}px`;
+
+            event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
+          }}
           onBlur={(event) => textAreaBlurHandler(event.target.value)}
         />
       )}
       <canvas
         ref={canvasRef}
         id="canvas"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
+        width={Math.floor(canvasSize.width * pixelRatio)}
+        height={Math.floor(canvasSize.height * pixelRatio)}
+        style={{
+          width: `${canvasSize.width}px`,
+          height: `${canvasSize.height}px`,
+          touchAction: "none",
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onContextMenu={(event) => event.preventDefault()}
       />
     </>
   );

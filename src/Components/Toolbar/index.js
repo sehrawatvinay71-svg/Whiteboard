@@ -21,7 +21,20 @@ const Toolbar = () => {
     useContext(boardContext);
   const handleDownloadClick = () => {
     const canvas = document.getElementById("canvas");
-    const data = canvas.toDataURL("image/jpg");
+
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = canvas.width;
+    exportCanvas.height = canvas.height;
+
+    const exportContext = exportCanvas.getContext("2d");
+
+    exportContext.fillStyle = "#ffffff";
+    exportContext.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+    exportContext.drawImage(canvas, 0, 0);
+
+    const data = exportCanvas.toDataURL("image/jpeg", 1.0);
+
     const anchor = document.createElement("a");
     anchor.href = data;
     anchor.download = "board.jpg";
